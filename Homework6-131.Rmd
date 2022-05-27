@@ -1,0 +1,130 @@
+---
+title: "131-Homework6"
+author: "Caleb Mazariegos"
+date: '2022-05-23'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Exercise 1
+
+```{r, include = FALSE}
+# loading the pokemon data set and loading packages
+library(tidyverse)
+library(tidymodels)
+library(corrr)
+library(ISLR)
+library(ISLR2)
+library(discrim)
+library(poissonreg)
+library(klaR)
+library(dplyr)
+library(ggplot2)
+library(rpart.plot)
+library(vip)
+library(janitor)
+library(glmnet)
+library(corrplot)
+library(xgboost)
+tidymodels_prefer()
+```
+
+```{r}
+#  Read in the data and set things up as in Homework 5:
+
+# Use clean_names()
+pokemon_codebook <- read.csv("/Users/calebmazariegos/Desktop/homework-5/Pokemon.csv")
+pokemon_codebook <- clean_names(pokemon_codebook)
+head(pokemon_codebook)
+```
+
+```{r}
+# Filter out the rarer Pokémon types
+pokemon_filter <- pokemon_codebook %>%
+  filter((type_1 == "Bug" | type_1 == "Fire" | type_1 == "Grass" | type_1 == "Normal" | type_1 == "Water" | type_1 == "Psychic"))
+
+head(pokemon_filter)
+```
+
+```{r}
+# converting type 1 and legendary in factors
+pokemon_codebook$type_1 <- as.factor(pokemon_codebook$type_1)
+pokemon_codebook$legendary <- as.factor(pokemon_codebook$legendary)
+pokemon_codebook$generation <- as.factor(pokemon_codebook$generation)
+
+pokemon_filter$type_1 <- as.factor(pokemon_filter$type_1)
+pokemon_filter$legendary <- as.factor(pokemon_filter$legendary)
+pokemon_filter$generation <- as.factor(pokemon_filter$generation)
+```
+
+```{r}
+# Do an initial split of the data; you can choose the percentage for splitting. Stratify on the outcome variable.
+set.seed(3465)
+
+pokemon_split <- initial_split(pokemon_filter, prop = 0.70, stata = type_1)
+
+pokemon_train <- training(pokemon_split)
+
+pokemon_test <- testing(pokemon_split)
+```
+
+```{r}
+# Fold the training set using v-fold cross-validation, with v = 5. Stratify on the outcome variable.
+
+set.seed(234)
+pokemon_folds <- vfold_cv(pokemon_train, v=5)
+pokemon_folds
+```
+
+```{r}
+# Set up a recipe to predict type_1 with legendary, generation, sp_atk, attack, speed, defense, hp, and sp_def:
+# dummy code legendary and generation; Center and scale all predictors.
+
+pokemon_recipe <- recipe(type_1 ~ legendary + generation + sp_atk + attack + speed + defense + hp + sp_def, data = pokemon_train) %>%
+  step_dummy(legendary) %>%
+  step_dummy(generation) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+```
+
+
+## Exercise 2
+Create a correlation matrix of the training set, using the corrplot package. Note: You can choose how to handle the continuous variables for this plot; justify your decision(s).
+
+What relationships, if any, do you notice? Do these relationships make sense to you?
+
+```{r}
+cor_pokemon_train <- pokemon_train %>%
+  select(total, hp, attack, defense, sp_atk, sp_def) %>%
+  correlate()
+
+
+cor_pokemon_train %>%
+  stretch() %>%
+  ggplot(aes(x,y, fill = r)) +
+  geom_tile() +
+  geom_text(aes(label = as.character(fashion(r))))
+```
+
+I decided to not include speed, because even though it is a numerical value, I do not consider it to be continuous. I see strong positive relationships between total and attack, total and sp_atk, total and sp_def. I see weak relationships between defense and sp_atk, and hp and defense. The rest of the relationships are moderate. 
+
+## Exercise 3
+
+First, set up a decision tree model and workflow. Tune the cost_complexity hyperparameter. Use the same levels we used in Lab 7 – that is, range = c(-3, -1). Specify that the metric we want to optimize is roc_auc.
+
+Print an autoplot() of the results. What do you observe? Does a single decision tree perform better with a smaller or larger complexity penalty?
+
+
+tree_spec <- decision_tree() %>%
+  set_engine("rpart")
+
+class_tree_spec <- tree_spec %>%
+  set_mode("classification")
+
+class_tree_fit <- class_tree_spec %>%
+  fit(type_1 ~., data = pokemon_train)
+
+
